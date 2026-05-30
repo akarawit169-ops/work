@@ -1,0 +1,694 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fraud Intelligence Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Bricolage+Grotesque:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a09;--bg2:#111110;--bg3:#1a1917;--bg4:#222120;
+  --border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.11);--border3:rgba(255,255,255,0.18);
+  --text:#ede9e1;--muted:#6b6760;--faint:#2e2c2a;
+  --red:#e05252;--amber:#d4890a;--blue:#4a8fd4;--green:#4caf6e;--teal:#2ab4a0;--purple:#9b7fd4;
+  --red-bg:rgba(224,82,82,0.1);--amber-bg:rgba(212,137,10,0.1);--blue-bg:rgba(74,143,212,0.08);
+  --green-bg:rgba(76,175,110,0.08);--teal-bg:rgba(42,180,160,0.08);--purple-bg:rgba(155,127,212,0.08);
+}
+body{background:var(--bg);color:var(--text);font-family:'Bricolage Grotesque',sans-serif;min-height:100vh;overflow-x:hidden}
+.mono{font-family:'DM Mono',monospace}
+
+/* ── Shell ── */
+.shell{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+
+/* ── Sidebar ── */
+.sidebar{background:var(--bg2);border-right:1px solid var(--border);padding:1.5rem 0;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto}
+.sidebar-logo{padding:0 1.25rem 1.5rem;border-bottom:1px solid var(--border);margin-bottom:1rem}
+.logo-mark{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.logo-diamond{width:12px;height:12px;background:var(--red);transform:rotate(45deg);flex-shrink:0;box-shadow:0 0 10px var(--red)}
+.logo-name{font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.logo-sub{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;letter-spacing:.04em}
+.nav-section{padding:0 .75rem;margin-bottom:.5rem}
+.nav-label{font-size:9px;font-family:'DM Mono',monospace;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;padding:.5rem .5rem .25rem}
+.nav-btn{display:flex;align-items:center;gap:9px;width:100%;background:transparent;border:none;border-radius:6px;padding:8px 10px;cursor:pointer;color:var(--muted);font-family:'Bricolage Grotesque',sans-serif;font-size:13px;text-align:left;transition:all .15s;position:relative}
+.nav-btn:hover{background:var(--bg3);color:var(--text)}
+.nav-btn.active{background:var(--bg4);color:var(--text);border:1px solid var(--border2)}
+.nav-icon{font-size:14px;width:18px;text-align:center;flex-shrink:0}
+.nav-badge{margin-left:auto;font-family:'DM Mono',monospace;font-size:10px;padding:1px 6px;border-radius:3px;background:var(--red-bg);color:var(--red);border:1px solid rgba(224,82,82,.25)}
+.nav-badge.amber{background:var(--amber-bg);color:var(--amber);border-color:rgba(212,137,10,.25)}
+.sidebar-footer{margin-top:auto;padding:1rem 1.25rem;border-top:1px solid var(--border)}
+.gen-info{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);line-height:1.6}
+.status-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:5px;vertical-align:middle}
+
+/* ── Main ── */
+.main{overflow-y:auto;min-height:100vh}
+.page{display:none;padding:2rem}
+.page.active{display:block;animation:fadeIn .2s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.page-header{margin-bottom:1.5rem}
+.page-title{font-size:22px;font-weight:700;letter-spacing:-.02em;margin-bottom:4px}
+.page-sub{font-size:13px;color:var(--muted);font-family:'DM Mono',monospace}
+
+/* ── KPI ── */
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1.5rem}
+.kpi{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;position:relative;overflow:hidden;transition:border-color .2s,transform .15s}
+.kpi:hover{border-color:var(--border2);transform:translateY(-1px)}
+.kpi::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px}
+.kpi.red::after{background:linear-gradient(90deg,var(--red),transparent)}
+.kpi.amber::after{background:linear-gradient(90deg,var(--amber),transparent)}
+.kpi.blue::after{background:linear-gradient(90deg,var(--blue),transparent)}
+.kpi.green::after{background:linear-gradient(90deg,var(--green),transparent)}
+.kpi.teal::after{background:linear-gradient(90deg,var(--teal),transparent)}
+.kpi.purple::after{background:linear-gradient(90deg,var(--purple),transparent)}
+.kpi-lbl{font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px}
+.kpi-val{font-size:26px;font-weight:700;line-height:1}
+.kpi-sub{font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);margin-top:4px}
+.kpi.red .kpi-val{color:var(--red)}.kpi.amber .kpi-val{color:var(--amber)}.kpi.blue .kpi-val{color:var(--blue)}.kpi.green .kpi-val{color:var(--green)}.kpi.teal .kpi-val{color:var(--teal)}.kpi.purple .kpi-val{color:var(--purple)}
+
+/* ── Cards ── */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:1.25rem}
+.card-title{font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:1rem}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:1.25rem}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:1.25rem}
+
+/* ── Badges ── */
+.badge{display:inline-flex;align-items:center;font-family:'DM Mono',monospace;font-size:10px;font-weight:500;padding:2px 7px;border-radius:3px;letter-spacing:.03em;white-space:nowrap}
+.badge-Critical{background:var(--red-bg);color:var(--red);border:1px solid rgba(224,82,82,.3)}
+.badge-High{background:var(--amber-bg);color:var(--amber);border:1px solid rgba(212,137,10,.3)}
+.badge-Medium{background:var(--blue-bg);color:var(--blue);border:1px solid rgba(74,143,212,.3)}
+.badge-Low{background:var(--green-bg);color:var(--green);border:1px solid rgba(76,175,110,.3)}
+
+/* ── Flag chips ── */
+.flags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.flag{font-family:'DM Mono',monospace;font-size:10px;padding:2px 7px;border-radius:3px;background:var(--bg3);color:var(--muted);border:1px solid var(--border)}
+.flag.off{color:var(--amber);border-color:rgba(212,137,10,.3);background:var(--amber-bg)}
+.flag.burst{color:var(--red);border-color:rgba(224,82,82,.3);background:var(--red-bg)}
+.flag.bal{color:var(--teal);border-color:rgba(42,180,160,.3);background:var(--teal-bg)}
+.flag.dormant{color:var(--purple);border-color:rgba(155,127,212,.3);background:var(--purple-bg)}
+
+/* ── Alert list ── */
+.alert-row{display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;border-radius:4px;margin:0 -4px;padding:11px 4px}
+.alert-row:last-child{border-bottom:none}
+.alert-row:hover{background:rgba(255,255,255,0.025)}
+.alert-row.case-reviewing{border-left:3px solid var(--amber);padding-left:9px}
+.alert-row.case-confirmed{border-left:3px solid var(--red);padding-left:9px}
+.alert-row.case-cleared{opacity:.5}
+.alert-icon{width:34px;height:34px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.icon-Critical{background:var(--red-bg);border:1px solid rgba(224,82,82,.25)}
+.icon-High{background:var(--amber-bg);border:1px solid rgba(212,137,10,.25)}
+.alert-body{flex:1;min-width:0}
+.alert-top{display:flex;align-items:center;gap:8px;margin-bottom:3px;flex-wrap:wrap}
+.alert-emp{font-family:'DM Mono',monospace;font-size:13px;font-weight:500}
+.alert-meta{font-family:'DM Mono',monospace;font-size:11px;color:var(--muted)}
+.alert-detail{font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);margin-bottom:2px}
+.alert-score{text-align:right;flex-shrink:0;font-family:'DM Mono',monospace;min-width:40px}
+.score-val{font-size:17px;font-weight:500}
+.score-den{font-size:10px;color:var(--muted)}
+
+/* ── Case management ── */
+.case-controls{display:flex;gap:5px;margin-top:6px}
+.case-btn{font-family:'DM Mono',monospace;font-size:10px;padding:2px 8px;border-radius:3px;border:1px solid var(--border);background:var(--bg3);color:var(--muted);cursor:pointer;transition:all .12s}
+.case-btn:hover{border-color:var(--border2);color:var(--text)}
+.case-btn.reviewing{background:var(--amber-bg);color:var(--amber);border-color:rgba(212,137,10,.4)}
+.case-btn.confirmed{background:var(--red-bg);color:var(--red);border-color:rgba(224,82,82,.4)}
+.case-btn.cleared{background:var(--green-bg);color:var(--green);border-color:rgba(76,175,110,.4)}
+
+/* ── Employee table ── */
+.emp-row{display:flex;align-items:center;gap:10px;padding:9px 6px;border-bottom:1px solid var(--border);cursor:pointer;border-radius:6px;transition:background .12s;margin:0 -6px}
+.emp-row:last-child{border-bottom:none}
+.emp-row:hover{background:rgba(255,255,255,0.03)}
+.emp-rank{font-family:'DM Mono',monospace;font-size:11px;color:var(--faint);width:22px;text-align:center;flex-shrink:0}
+.emp-av{width:32px;height:32px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);flex-shrink:0}
+.emp-info{flex:1;min-width:0}
+.emp-id{font-family:'DM Mono',monospace;font-size:13px;font-weight:500}
+.emp-dept{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);margin-top:2px}
+.bar-track{width:100px;height:4px;background:var(--faint);border-radius:2px;overflow:hidden;flex-shrink:0}
+.bar-fill{height:100%;border-radius:2px;transition:width .6s ease}
+.emp-stats{display:flex;gap:12px;font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);flex-shrink:0;min-width:200px}
+.emp-score{font-family:'DM Mono',monospace;font-size:15px;font-weight:500;min-width:36px;text-align:right;flex-shrink:0}
+
+/* ── Filter bar ── */
+.filter-bar{display:flex;gap:8px;margin-bottom:1rem;align-items:center;flex-wrap:wrap}
+.filter-lbl{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.fsel{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);cursor:pointer;outline:none;transition:border-color .15s}
+.fsel:focus{border-color:var(--border2);color:var(--text)}
+
+/* ── Timeline ── */
+.timeline-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
+.emp-select-wrap{display:flex;gap:8px;align-items:center}
+.timeline-item{display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);position:relative}
+.timeline-item:last-child{border-bottom:none}
+.tl-time{font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);width:110px;flex-shrink:0;padding-top:2px}
+.tl-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:5px}
+.tl-body{flex:1;min-width:0}
+.tl-acct{font-family:'DM Mono',monospace;font-size:12px;font-weight:500}
+.tl-detail{font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);margin-top:2px}
+
+/* ── Trend chart ── */
+#trendChartWrap{position:relative;height:220px}
+.trend-emp-btns{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:1rem}
+.trend-emp-btn{font-family:'DM Mono',monospace;font-size:10px;padding:3px 9px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:all .15s}
+.trend-emp-btn:hover{border-color:var(--border2);color:var(--text)}
+.trend-emp-btn.active{background:var(--bg4);color:var(--text);border-color:var(--border3)}
+
+/* ── Network graph ── */
+#networkSvg{width:100%;height:500px;background:var(--bg3);border-radius:8px;cursor:grab}
+#networkSvg:active{cursor:grabbing}
+.network-legend{display:flex;gap:16px;margin-top:.75rem;flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:11px;color:var(--muted)}
+.legend-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.network-tooltip{position:fixed;background:var(--bg2);border:1px solid var(--border2);border-radius:6px;padding:8px 12px;font-family:'DM Mono',monospace;font-size:11px;pointer-events:none;z-index:100;display:none;max-width:200px}
+
+/* ── Loading / Error ── */
+#loading{display:flex;align-items:center;justify-content:center;height:100vh;font-family:'DM Mono',monospace;color:var(--muted);font-size:13px;flex-direction:column;gap:12px}
+.loading-spinner{width:24px;height:24px;border:2px solid var(--faint);border-top-color:var(--red);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#error-msg{background:var(--red-bg);border:1px solid rgba(224,82,82,.3);border-radius:8px;padding:1.5rem;margin:2rem;font-family:'DM Mono',monospace;font-size:12px;color:var(--red);white-space:pre-wrap;display:none}
+</style>
+</head>
+<body>
+
+<div id="loading"><div class="loading-spinner"></div>Loading fraud_output_v2.json…</div>
+<div id="error-msg"></div>
+<div id="app" style="display:none">
+<div class="shell">
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark"><div class="logo-diamond"></div><span class="logo-name">FraudIQ</span></div>
+    <div class="logo-sub">Access log intelligence</div>
+  </div>
+  <div class="nav-section">
+    <div class="nav-label">Monitor</div>
+    <button class="nav-btn active" onclick="nav('overview',this)"><span class="nav-icon">◉</span>Overview</button>
+    <button class="nav-btn" onclick="nav('alerts',this)"><span class="nav-icon">⚡</span>Alerts<span class="nav-badge" id="nb-critical">—</span></button>
+    <button class="nav-btn" onclick="nav('employees',this)"><span class="nav-icon">◈</span>Employees</button>
+  </div>
+  <div class="nav-section">
+    <div class="nav-label">Investigate</div>
+    <button class="nav-btn" onclick="nav('timeline',this)"><span class="nav-icon">⊞</span>Timeline</button>
+    <button class="nav-btn" onclick="nav('trend',this)"><span class="nav-icon">∿</span>Risk trend</button>
+    <button class="nav-btn" onclick="nav('network',this)"><span class="nav-icon">⬡</span>Account network</button>
+  </div>
+  <div class="nav-section">
+    <div class="nav-label">Signals</div>
+    <button class="nav-btn" onclick="nav('dormant',this)"><span class="nav-icon">⊘</span>Dormant accounts<span class="nav-badge amber" id="nb-dormant">—</span></button>
+  </div>
+  <div class="sidebar-footer">
+    <div class="gen-info">
+      <span class="status-dot"></span>Scores current<br>
+      Generated: <span id="gen-time">—</span><br>
+      Model: <span id="model-name">—</span>
+    </div>
+  </div>
+</aside>
+
+<main class="main">
+
+  <div id="page-overview" class="page active">
+    <div class="page-header">
+      <div class="page-title">Overview</div>
+      <div class="page-sub mono" id="overview-sub">—</div>
+    </div>
+    <div class="kpi-row">
+      <div class="kpi red"><div class="kpi-lbl">Critical</div><div class="kpi-val" id="kpi-crit">—</div><div class="kpi-sub">score 80–100</div></div>
+      <div class="kpi amber"><div class="kpi-lbl">High</div><div class="kpi-val" id="kpi-high">—</div><div class="kpi-sub">score 60–80</div></div>
+      <div class="kpi teal"><div class="kpi-lbl">Burst events</div><div class="kpi-val" id="kpi-burst">—</div><div class="kpi-sub">&gt;3 hits / 5 min</div></div>
+      <div class="kpi purple"><div class="kpi-lbl">Dormant access</div><div class="kpi-val" id="kpi-dormant">—</div><div class="kpi-sub">closed/frozen accts</div></div>
+    </div>
+    <div class="grid-2">
+      <div class="card"><div class="card-title">Risk distribution</div><div style="position:relative;height:180px"><canvas id="distChart"></canvas></div></div>
+      <div class="card"><div class="card-title">Avg risk score by hour</div><div style="position:relative;height:180px"><canvas id="hourlyChart"></canvas></div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Top 5 highest-risk employees</div>
+      <div id="overview-emp-list"></div>
+    </div>
+  </div>
+
+  <div id="page-alerts" class="page">
+    <div class="page-header">
+      <div class="page-title">Alerts</div>
+      <div class="page-sub">Top 100 highest risk log entries · click to manage case</div>
+    </div>
+    <div class="card">
+      <div class="filter-bar">
+        <span class="filter-lbl">Tier:</span>
+        <select class="fsel" id="tier-f" onchange="renderAlerts()"><option value="all">All</option><option value="Critical">Critical</option><option value="High">High</option></select>
+        <span class="filter-lbl">Flag:</span>
+        <select class="fsel" id="flag-f" onchange="renderAlerts()"><option value="all">All flags</option><option value="Off-hours">Off-hours</option><option value="After midnight">After midnight</option><option value="Weekend">Weekend</option><option value="Burst">Burst</option><option value="High balance">High balance</option><option value="Dormant">Dormant/Closed</option></select>
+        <span class="filter-lbl">Case:</span>
+        <select class="fsel" id="case-f" onchange="renderAlerts()"><option value="all">All cases</option><option value="open">Open only</option><option value="reviewing">Under review</option><option value="confirmed">Confirmed fraud</option><option value="cleared">Cleared</option></select>
+        <span class="filter-lbl mono" id="alert-count" style="margin-left:auto;color:var(--muted)"></span>
+      </div>
+      <div id="alert-list"></div>
+    </div>
+  </div>
+
+  <div id="page-employees" class="page">
+    <div class="page-header">
+      <div class="page-title">Employee risk ranking</div>
+      <div class="page-sub">Composite score = risk avg + event rate + off-hours + burst + dormant</div>
+    </div>
+    <div class="card"><div id="emp-list"></div></div>
+  </div>
+
+  <div id="page-timeline" class="page">
+    <div class="page-header">
+      <div class="page-title">Employee timeline</div>
+      <div class="page-sub">Full access history for selected employee</div>
+    </div>
+    <div class="card">
+      <div class="timeline-header">
+        <div class="emp-select-wrap">
+          <span class="filter-lbl">Employee:</span>
+          <select class="fsel" id="tl-emp-sel" onchange="renderTimeline()"></select>
+        </div>
+        <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted)" id="tl-count"></div>
+      </div>
+      <div style="display:flex;gap:16px;margin-bottom:1rem;flex-wrap:wrap" id="tl-summary"></div>
+      <div id="timeline-list" style="max-height:600px;overflow-y:auto"></div>
+    </div>
+  </div>
+
+  <div id="page-trend" class="page">
+    <div class="page-header">
+      <div class="page-title">Risk trend</div>
+      <div class="page-sub">30-day rolling average risk score per employee</div>
+    </div>
+    <div class="card">
+      <div class="trend-emp-btns" id="trend-btns"></div>
+      <div id="trendChartWrap"><canvas id="trendChart"></canvas></div>
+    </div>
+  </div>
+
+  <div id="page-network" class="page">
+    <div class="page-header">
+      <div class="page-title">Account network</div>
+      <div class="page-sub">Accounts accessed by 4+ employees — drag nodes to explore</div>
+    </div>
+    <div class="card">
+      <svg id="networkSvg"></svg>
+      <div class="network-legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#4a8fd4"></div>Employee</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#d4890a"></div>Active account</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#9b7fd4"></div>Dormant/Closed account</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#e05252"></div>High-risk employee</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="page-dormant" class="page">
+    <div class="page-header">
+      <div class="page-title">Dormant &amp; closed account access</div>
+      <div class="page-sub">Near-zero legitimate reason to query a closed account</div>
+    </div>
+    <div class="card"><div id="dormant-list"></div></div>
+  </div>
+
+</main>
+</div></div><div class="network-tooltip" id="netTooltip"></div>
+
+<script>
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DATA + STATE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+let D = null;
+let CASES = JSON.parse(localStorage.getItem('fraud_cases')||'{}');
+let trendChart = null;
+let activeTrendEmps = [];
+const TREND_COLORS = ['#e05252','#d4890a','#4a8fd4','#4caf6e','#9b7fd4','#2ab4a0','#d45252','#7fd48a'];
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LOAD
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+fetch('fraud_output_v2.json')
+  .then(r=>{ if(!r.ok) throw new Error(`HTTP ${r.status} — make sure fraud_output_v2.json is in the same folder`); return r.json(); })
+  .then(data=>{ D=data; document.getElementById('loading').style.display='none'; document.getElementById('app').style.display='block'; boot(); })
+  .catch(err=>{ document.getElementById('loading').style.display='none'; const el=document.getElementById('error-msg'); el.style.display='block'; el.textContent='⚠ '+err.message; });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// BOOT
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function boot(){
+  const s=D.summary;
+  document.getElementById('gen-time').textContent=s.generated_at;
+  document.getElementById('model-name').textContent='IF n=200';
+  document.getElementById('overview-sub').textContent=`${s.total_logs.toLocaleString()} logs · ${s.total_employees} employees · ${s.total_accounts.toLocaleString()} accounts`;
+  document.getElementById('nb-critical').textContent=s.critical_events;
+  document.getElementById('nb-dormant').textContent=s.dormant_events;
+  document.getElementById('kpi-crit').textContent=s.critical_events;
+  document.getElementById('kpi-high').textContent=s.high_events;
+  document.getElementById('kpi-burst').textContent=s.burst_events.toLocaleString();
+  document.getElementById('kpi-dormant').textContent=s.dormant_events.toLocaleString();
+  buildDistChart(); buildHourlyChart(); buildOverviewEmpList();
+  renderAlerts(); renderEmployees();
+  buildTimelineSelector(); renderTimeline();
+  buildTrendButtons(); renderTrend();
+  buildNetwork();
+  renderDormant();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// NAVIGATION
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function nav(page, btn){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CHARTS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const TICK={color:'#6b6760',font:{family:"'DM Mono',monospace",size:10}};
+const GRID={color:'rgba(255,255,255,0.04)'};
+const NB={display:false};
+
+function buildDistChart(){
+  const tiers=['Low','Medium','High','Critical'];
+  const colors={'Low':'#4caf6e','Medium':'#4a8fd4','High':'#d4890a','Critical':'#e05252'};
+  const dist=D.risk_distribution;
+  new Chart(document.getElementById('distChart'),{
+    type:'bar',
+    data:{labels:tiers,datasets:[{data:tiers.map(t=>dist[t]||0),backgroundColor:tiers.map(t=>colors[t]),borderRadius:4,borderSkipped:false}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{x:{ticks:TICK,grid:{display:false},border:NB},y:{ticks:{...TICK,callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v},grid:GRID,border:NB}}}
+  });
+}
+
+function buildHourlyChart(){
+  const h=D.hourly_risk_pattern;
+  const labels=Array.from({length:24},(_,i)=>i===0?'12am':i<12?i+'am':i===12?'12pm':(i-12)+'pm');
+  new Chart(document.getElementById('hourlyChart'),{
+    type:'line',
+    data:{labels,datasets:[{data:Array.from({length:24},(_,i)=>h[i]||0),borderColor:'#e05252',backgroundColor:'rgba(224,82,82,0.07)',fill:true,tension:0.4,pointRadius:0,borderWidth:2}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{x:{ticks:{...TICK,maxRotation:0,autoSkip:true,maxTicksLimit:8},grid:{display:false},border:NB},y:{min:0,max:100,ticks:TICK,grid:GRID,border:NB}}}
+  });
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HELPERS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const fmtBal=n=>n>=1e6?'฿'+(n/1e6).toFixed(1)+'M':n>=1e3?'฿'+(n/1e3).toFixed(0)+'K':'฿'+n.toLocaleString();
+const scoreColor=s=>s>=80?'var(--red)':s>=60?'var(--amber)':'var(--blue)';
+const barColor=s=>s>=80?'var(--red)':s>=60?'var(--amber)':'var(--blue)';
+
+function flagChip(f){
+  const lf=f.toLowerCase();
+  let cls='';
+  if(lf.includes('midnight')||lf.includes('off-hours')||lf.includes('weekend'))cls='off';
+  else if(lf.includes('burst'))cls='burst';
+  else if(lf.includes('balance'))cls='bal';
+  else if(lf.includes('dormant')||lf.includes('closed')||lf.includes('frozen'))cls='dormant';
+  return `<span class="flag ${cls}">${f}</span>`;
+}
+
+function badge(tier){return `<span class="badge badge-${tier}">${tier}</span>`;}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// OVERVIEW EMPLOYEE LIST
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function buildOverviewEmpList(){
+  const top5=D.top_risky_employees.slice(0,5);
+  const max=top5[0].composite_risk;
+  document.getElementById('overview-emp-list').innerHTML=top5.map((e,i)=>`
+    <div class="emp-row" onclick="goTimeline('${e.employee_id}')">
+      <div class="emp-rank">${i+1}</div>
+      <div class="emp-av">${e.employee_id.replace('EMP','')}</div>
+      <div class="emp-info">
+        <div class="emp-id">${e.employee_id}</div>
+        <div class="emp-dept">${e.dept_name} · ${e.position} · ${e.branch_number}</div>
+      </div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(e.composite_risk/max*100).toFixed(0)}%;background:${barColor(e.avg_risk_score)}"></div></div>
+      <div class="emp-stats">
+        <span>${e.total_logs} logs</span>
+        <span>${e.unique_accounts} accts</span>
+        <span style="${e.dormant_events>0?'color:var(--purple)':''}">${e.dormant_events} dormant</span>
+      </div>
+      <div class="emp-score" style="color:${barColor(e.avg_risk_score)}">${e.composite_risk.toFixed(1)}</div>
+    </div>`).join('');
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ALERTS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function renderAlerts(){
+  if(!D) return;
+  const tf=document.getElementById('tier-f').value;
+  const ff=document.getElementById('flag-f').value;
+  const cf=document.getElementById('case-f').value;
+  let alerts=D.top_alerts;
+  if(tf!=='all') alerts=alerts.filter(a=>a.risk_tier===tf);
+  if(ff!=='all') alerts=alerts.filter(a=>(a.flags||[]).some(f=>f.toLowerCase().includes(ff.toLowerCase())));
+  if(cf==='open') alerts=alerts.filter(a=>!CASES[a.log_id]);
+  else if(cf!=='all') alerts=alerts.filter(a=>CASES[a.log_id]===cf);
+  document.getElementById('alert-count').textContent=`${alerts.length} results`;
+  document.getElementById('alert-list').innerHTML=alerts.slice(0,60).map(a=>{
+    const cs=CASES[a.log_id]||'open';
+    return `
+    <div class="alert-row case-${cs}" id="row-${a.log_id}">
+      <div class="alert-icon icon-${a.risk_tier}">${a.risk_tier==='Critical'?'🔥':'⚠'}</div>
+      <div class="alert-body">
+        <div class="alert-top">
+          <span class="alert-emp">${a.employee_id}</span>
+          <span class="alert-meta">${a.dept_name} · ${a.position} · ${a.branch_number}</span>
+          ${badge(a.risk_tier)}
+        </div>
+        <div class="alert-detail">${a.log_date} · ${a.acct_no} · ${a.app_desc} · ${fmtBal(a.current_balance)} · ${a.account_status}</div>
+        <div class="flags">${(a.flags||[]).map(flagChip).join('')}</div>
+        <div class="case-controls">
+          <span class="filter-lbl" style="padding-top:2px">Case:</span>
+          <button class="case-btn ${cs==='reviewing'?'reviewing':''}" onclick="setCase('${a.log_id}','reviewing',event)">Under review</button>
+          <button class="case-btn ${cs==='confirmed'?'confirmed':''}" onclick="setCase('${a.log_id}','confirmed',event)">Confirmed fraud</button>
+          <button class="case-btn ${cs==='cleared'?'cleared':''}" onclick="setCase('${a.log_id}','cleared',event)">Cleared</button>
+          ${cs!=='open'?`<button class="case-btn" onclick="setCase('${a.log_id}','open',event)">Reset</button>`:''}
+        </div>
+      </div>
+      <div class="alert-score">
+        <div class="score-val" style="color:${scoreColor(a.risk_score)}">${a.risk_score.toFixed(0)}</div>
+        <div class="score-den">/100</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function setCase(logId, status, e){
+  e.stopPropagation();
+  if(status==='open') delete CASES[logId]; else CASES[logId]=status;
+  localStorage.setItem('fraud_cases',JSON.stringify(CASES));
+  renderAlerts();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// EMPLOYEES
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function renderEmployees(){
+  const emps=D.top_risky_employees;
+  const max=emps[0].composite_risk;
+  document.getElementById('emp-list').innerHTML=emps.map((e,i)=>`
+    <div class="emp-row" onclick="goTimeline('${e.employee_id}')">
+      <div class="emp-rank">${i+1}</div>
+      <div class="emp-av">${e.employee_id.replace('EMP','')}</div>
+      <div class="emp-info">
+        <div class="emp-id">${e.employee_id}</div>
+        <div class="emp-dept">${e.dept_name} · ${e.position} · ${e.branch_number}</div>
+      </div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(e.composite_risk/max*100).toFixed(0)}%;background:${barColor(e.avg_risk_score)}"></div></div>
+      <div class="emp-stats">
+        <span>${e.total_logs} logs</span>
+        <span>${e.unique_accounts} accts</span>
+        <span style="${e.burst_events>0?'color:var(--red)':''}">${e.burst_events} burst</span>
+        <span style="${e.dormant_events>0?'color:var(--purple)':''}">${e.dormant_events} dormant</span>
+      </div>
+      <div class="emp-score" style="color:${barColor(e.avg_risk_score)}">${e.composite_risk.toFixed(1)}</div>
+    </div>`).join('');
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TIMELINE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function buildTimelineSelector(){
+  const sel=document.getElementById('tl-emp-sel');
+  sel.innerHTML=D.top_risky_employees.map(e=>`<option value="${e.employee_id}">${e.employee_id} — ${e.dept_name}</option>`).join('');
+}
+
+function renderTimeline(){
+  const eid=document.getElementById('tl-emp-sel').value;
+  const logs=(D.emp_timeline[eid]||[]);
+  document.getElementById('tl-count').textContent=`${logs.length} records (last 200 shown)`;
+  // Summary pills
+  const high=logs.filter(l=>['High','Critical'].includes(l.risk_tier)).length;
+  const dormant=logs.filter(l=>l.is_dormant_access).length;
+  const burst=logs.filter(l=>l.is_burst).length;
+  document.getElementById('tl-summary').innerHTML=[
+    ['Avg risk', (logs.reduce((a,l)=>a+l.risk_score,0)/logs.length).toFixed(1), 'var(--red)'],
+    ['High/Critical', high, 'var(--amber)'],
+    ['Dormant access', dormant, 'var(--purple)'],
+    ['Burst events', burst, 'var(--red)'],
+  ].map(([lbl,val,col])=>`
+    <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:8px 14px">
+      <div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--muted);margin-bottom:3px">${lbl}</div>
+      <div style="font-size:16px;font-weight:600;color:${col}">${val}</div>
+    </div>`).join('');
+  // Log items
+  const dotColor=l=>{
+    if(l.risk_tier==='Critical') return 'var(--red)';
+    if(l.risk_tier==='High') return 'var(--amber)';
+    if(l.is_dormant_access) return 'var(--purple)';
+    return 'var(--faint)';
+  };
+  document.getElementById('timeline-list').innerHTML=logs.map(l=>`
+    <div class="timeline-item">
+      <div class="tl-time">${l.log_date}</div>
+      <div class="tl-dot" style="background:${dotColor(l)}"></div>
+      <div class="tl-body">
+        <div class="tl-acct">${l.acct_no} <span style="color:var(--muted);font-weight:400">— ${l.app_desc}</span> ${badge(l.risk_tier)}</div>
+        <div class="tl-detail">${fmtBal(l.current_balance)} · ${l.account_status} · risk ${l.risk_score.toFixed(0)}/100</div>
+        <div class="flags">${(l.flags||[]).map(flagChip).join('')}</div>
+      </div>
+    </div>`).join('');
+}
+
+function goTimeline(empId){
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.nav-btn')[4].classList.add('active');
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-timeline').classList.add('active');
+  document.getElementById('tl-emp-sel').value=empId;
+  renderTimeline();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TREND
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function buildTrendButtons(){
+  const ids=D.top_risky_employees.slice(0,8).map(e=>e.employee_id);
+  activeTrendEmps=ids.slice(0,3);
+  document.getElementById('trend-btns').innerHTML=ids.map((id,i)=>`
+    <button class="trend-emp-btn ${activeTrendEmps.includes(id)?'active':''}"
+      onclick="toggleTrendEmp('${id}',this)"
+      style="${activeTrendEmps.includes(id)?'border-left:3px solid '+TREND_COLORS[i%TREND_COLORS.length]:''}">
+      ${id}
+    </button>`).join('');
+  renderTrend();
+}
+
+function toggleTrendEmp(id, btn){
+  if(activeTrendEmps.includes(id)) activeTrendEmps=activeTrendEmps.filter(e=>e!==id);
+  else activeTrendEmps.push(id);
+  document.querySelectorAll('.trend-emp-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('trend-btns').querySelectorAll('button').forEach(b=>{
+    const bid=b.textContent.trim();
+    if(activeTrendEmps.includes(bid)) b.classList.add('active');
+  });
+  renderTrend();
+}
+
+function renderTrend(){
+  if(trendChart){ trendChart.destroy(); trendChart=null; }
+  if(!activeTrendEmps.length) return;
+  const allDates=new Set();
+  activeTrendEmps.forEach(id=>{ (D.risk_trend[id]||[]).forEach(r=>allDates.add(r.date)); });
+  const dates=Array.from(allDates).sort().slice(-60);
+  const datasets=activeTrendEmps.map((id,i)=>{
+    const byDate={}; (D.risk_trend[id]||[]).forEach(r=>byDate[r.date]=r.avg_risk);
+    const color=TREND_COLORS[i%TREND_COLORS.length];
+    return {label:id,data:dates.map(d=>byDate[d]||null),borderColor:color,backgroundColor:'transparent',
+      tension:0.3,pointRadius:0,borderWidth:2,spanGaps:true};
+  });
+  trendChart=new Chart(document.getElementById('trendChart'),{
+    type:'line',data:{labels:dates.map(d=>d.slice(5)),datasets},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,labels:{color:'#6b6760',font:{family:"'DM Mono',monospace",size:10},boxWidth:12,padding:12}}},
+      scales:{x:{ticks:{...TICK,maxRotation:0,autoSkip:true,maxTicksLimit:10},grid:{display:false},border:NB},
+              y:{min:0,ticks:TICK,grid:GRID,border:NB}}}
+  });
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// NETWORK GRAPH (D3 force-directed)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function buildNetwork(){
+  const {nodes,links}=D.account_network;
+  const svg=d3.select('#networkSvg');
+  const W=document.getElementById('networkSvg').clientWidth||900;
+  const H=500;
+  const tooltip=document.getElementById('netTooltip');
+
+  const nodeColor=n=>{
+    if(n.type==='employee') return n.risk>15?'#e05252':'#4a8fd4';
+    return (n.status==='Dormant'||n.status==='Closed'||n.status==='Frozen')?'#9b7fd4':'#d4890a';
+  };
+  const nodeRadius=n=>n.type==='account'?Math.min(10,4+Math.sqrt(n.access_count||1)):6;
+
+  const sim=d3.forceSimulation(nodes)
+    .force('link',d3.forceLink(links).id(d=>d.id).distance(60).strength(0.4))
+    .force('charge',d3.forceManyBody().strength(-120))
+    .force('center',d3.forceCenter(W/2,H/2))
+    .force('collision',d3.forceCollide().radius(d=>nodeRadius(d)+4));
+
+  const g=svg.append('g');
+
+  svg.call(d3.zoom().scaleExtent([.2,4]).on('zoom',e=>g.attr('transform',e.transform)));
+
+  const link=g.append('g').selectAll('line').data(links).join('line')
+    .attr('stroke','rgba(255,255,255,0.08)').attr('stroke-width',1);
+
+  const node=g.append('g').selectAll('circle').data(nodes).join('circle')
+    .attr('r',d=>nodeRadius(d))
+    .attr('fill',nodeColor)
+    .attr('stroke','rgba(255,255,255,0.15)').attr('stroke-width',0.5)
+    .style('cursor','pointer')
+    .call(d3.drag()
+      .on('start',(e,d)=>{ if(!e.active)sim.alphaTarget(.3).restart(); d.fx=d.x;d.fy=d.y; })
+      .on('drag',(e,d)=>{ d.fx=e.x;d.fy=e.y; })
+      .on('end',(e,d)=>{ if(!e.active)sim.alphaTarget(0); d.fx=null;d.fy=null; }))
+    .on('mousemove',(e,d)=>{
+      tooltip.style.display='block';
+      tooltip.style.left=e.clientX+14+'px';
+      tooltip.style.top=e.clientY-10+'px';
+      if(d.type==='employee')
+        tooltip.innerHTML=`<b>${d.id}</b><br>${d.dept}<br>Risk: ${d.risk.toFixed(1)}`;
+      else
+        tooltip.innerHTML=`<b>${d.id}</b><br>${d.status} · ${d.account_status||''}<br>฿${(d.balance||0).toLocaleString()}<br>${d.access_count} accesses`;
+    })
+    .on('mouseleave',()=>{ tooltip.style.display='none'; });
+
+  sim.on('tick',()=>{
+    link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    node.attr('cx',d=>d.x).attr('cy',d=>d.y);
+  });
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DORMANT
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function renderDormant(){
+  document.getElementById('dormant-list').innerHTML=D.dormant_alerts.slice(0,50).map(a=>`
+    <div class="alert-row">
+      <div class="alert-icon" style="background:var(--purple-bg);border:1px solid rgba(155,127,212,.25);font-size:15px">⊘</div>
+      <div class="alert-body">
+        <div class="alert-top">
+          <span class="alert-emp">${a.employee_id}</span>
+          <span class="alert-meta">${a.dept_name} · ${a.position}</span>
+          ${badge(a.risk_tier)}
+          <span class="badge" style="background:var(--purple-bg);color:var(--purple);border:1px solid rgba(155,127,212,.3)">${a.account_status}</span>
+        </div>
+        <div class="alert-detail">${a.log_date} · ${a.acct_no} · ${a.app_desc} · ${fmtBal(a.current_balance)}</div>
+        <div class="flags">${(a.flags||[]).map(flagChip).join('')}</div>
+      </div>
+      <div class="alert-score">
+        <div class="score-val" style="color:${scoreColor(a.risk_score)}">${a.risk_score.toFixed(0)}</div>
+        <div class="score-den">/100</div>
+      </div>
+    </div>`).join('');
+}
+</script>
+</body>
+</html>
