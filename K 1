@@ -1,10 +1,33 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# SECTION 7: GLOBAL FEATURE IMPORTANCE & TARGETED HIGH-SPEED SHAP ENGINE
+# NEW SECTION 7: HIGH-SPEED VECTORIZED TIME-WINDOW ISOLATION (BURST CALCULATION FIRST)
 # ══════════════════════════════════════════════════════════════════════════════
-print("\n[7/7] Training global surrogate model & initializing SHAP TreeExplainer...")
+print("\n[7/7] Calculating vectorized localized bursts (Trapped Per Employee)...")
+
+# 1. Prepare a clean, chronologically sorted copy for rapid window math
+df_burst = df[['log_id', 'employee_id', 'log_date']].copy()
+df_burst = df_burst.sort_values(['employee_id', 'log_date'], ascending=True).set_index('log_date')
+
+# 2. Group by employee and roll the 5min window simultaneously (Traps the window per person)
+df_burst['burst_5min_local'] = df_burst.groupby('employee_id')['log_id'].rolling('5min').count().reset_index(level=0, drop=True)
+
+# 3. Map the vectorized burst counts cleanly back to the master dataframe
+df['burst_5min_local'] = df['log_id'].map(df_burst.set_index('log_id')['burst_5min_local']).fillna(1).astype(int)
+df['is_burst'] = (df['burst_5min_local'] > 3).astype(int)
+
+# 4. Apply clean-up overrides to features that cause false statistical surprises
+df.loc[df['current_balance'] <= 0, 'balance_surprise_zscore'] = 0.0
+
+# Update our ML feature matrix now that the window metrics are perfectly accurate
+X_all = df[FEATURES].fillna(0).astype(float)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NEW SECTION 8: TARGETED SHAP ENGINE (Trained on Cleaned, Isolated Features)
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n[8/7] Training global surrogate model on clean features & running SHAP...")
 import shap
 
-# 1. Train the Explainer Model on a subset sample
+# Train the Explainer Model on a clean subset sample
 sample_idx = np.random.choice(len(X_all), min(20000, len(X_all)), replace=False)
 X_sample = X_all.iloc[sample_idx]
 y_sample = df.loc[df.index[sample_idx], 'ensemble_score']
@@ -15,18 +38,18 @@ explainer.fit(X_sample, y_sample)
 importances = dict(zip(FEATURES, explainer.feature_importances_))
 feature_importance = dict(sorted(importances.items(), key=lambda x: x[1], reverse=True))
 
-# Initialize the SHAP engine
+# Initialize the SHAP explainer
 shap_explainer = shap.TreeExplainer(explainer)
 
-# Initialize columns in the master dataframe with fast, standard fallback defaults
+# Initialize columns in the master dataframe with fast fallback defaults
 df['shap_reason'] = "Multiple Behavioral Indicators"
 df['shap_explanation_json'] = json.dumps({k: float(round(v * 100, 2)) for k, v in feature_importance.items()})
 
-# 2. Extract our target alert populations FIRST so we only run heavy math on what we show
+# Extract target populations
 top_alerts_df = df.nlargest(100, 'ensemble_score').copy()
 dormant_alerts_df = df[df['is_dormant_access'] == 1].nlargest(100, 'ensemble_score').copy()
 
-print("[7/7] Computing targeted high-speed SHAP for top alert entries...")
+print("[8/7] Extracting AI reasons for top alert rows...")
 
 # Compute SHAP ONLY for the Top 100 Alerts
 X_top = top_alerts_df[FEATURES].fillna(0).astype(float)
@@ -55,7 +78,7 @@ if len(dormant_alerts_df) > 0:
 
     for idx, original_idx in enumerate(dormant_alerts_df.index):
         row_values = [float(val) for val in raw_shap_dorm[idx]]
-        row_shap = dict(zip(FEATURES, raw_shap_dorm[idx]))
+        row_shap = dict(zip(FEATURES, row_values))
         sorted_shap = sorted(row_shap.items(), key=lambda x: abs(x[1]), reverse=True)
         top_drivers = [k for k, v in sorted_shap[:2] if abs(v) > 0.0001]
         
@@ -67,30 +90,11 @@ if len(dormant_alerts_df) > 0:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SECTION 8: HIGH-SPEED VECTORIZED TIMELINE ISOLATION & GENERATION
+# NEW SECTION 9: BULK TIMELINE FILE WRITER & COMPACT PAYLOAD EXPORT
 # ══════════════════════════════════════════════════════════════════════════════
-print("\n[8/7] Calculating vectorized localized bursts and writing timeline files...")
-TL_DIR = 'timelines'
-if not os.path.exists(TL_DIR): 
-    os.makedirs(TL_DIR)
-
-# 1. Prepare a clean, chronologically sorted copy for rapid window math
-df_burst = df[['log_id', 'employee_id', 'log_date']].copy()
-df_burst = df_burst.sort_values(['employee_id', 'log_date'], ascending=True).set_index('log_date')
-
-# 2. Group by employee and roll the 5min window simultaneously (Isolated Per Employee)
-df_burst['burst_5min_local'] = df_burst.groupby('employee_id')['log_id'].rolling('5min').count().reset_index(level=0, drop=True)
-
-# 3. Map the vectorized burst counts cleanly back to the master dataframe
-df['burst_5min_local'] = df['log_id'].map(df_burst.set_index('log_id')['burst_5min_local']).fillna(1).astype(int)
-df['is_burst'] = (df['burst_5min_local'] > 3).astype(int)
-
-# Create a display-ready string date column
+print("\n[~] Generating individual timeline JSON files...")
 df_timeline = df.copy()
 df_timeline['log_date_str'] = df_timeline['log_date'].dt.strftime('%Y-%m-%d %H:%M')
-
-# FIX 1: Hard guard to ensure zero Baht accounts are completely excluded from balance anomalies
-df_timeline.loc[df_timeline['current_balance'] <= 0, 'balance_surprise_zscore'] = 0.0
 
 def get_local_flags(row):
     f = []
@@ -98,21 +102,15 @@ def get_local_flags(row):
     if row['is_after_midnight']: f.append('After midnight')
     if row['hour_zscore'] > 2.5: f.append('Time Anomaly')
     if row['weekend_surprise'] > 0.7: f.append('Weekend Surprise')
-    
-    # FIX 2: Ensure the flag builder reads the fresh, isolated local window count
-    if row['burst_5min_local'] > 3: 
-        f.append(f"Burst ({int(row['burst_5min_local'])} in 5min)")
-        
+    if row['burst_5min_local'] > 3: f.append(f"Burst ({int(row['burst_5min_local'])} in 5min)")
     if row['is_dormant_access']: f.append('Dormant/Closed')
     if row['is_escalating']: f.append('Escalation')
     if row['balance_surprise_zscore'] > 2.5: f.append('Balance Surprise')
     if row['workload_zscore'] > 2.5: f.append('Volume Spike')
     return f
 
-# Calculate flags across the dataframe layout using high-speed vectorization
 df_timeline['flags'] = df_timeline.apply(get_local_flags, axis=1)
 
-print("[8/7] Exporting JSON tracking blocks to disk...")
 for eid, emp_logs in df_timeline.groupby('employee_id'):
     emp_logs_sorted = emp_logs.sort_values('log_date', ascending=False)
     
@@ -127,15 +125,7 @@ for eid, emp_logs in df_timeline.groupby('employee_id'):
     with open(f'{TL_DIR}/{eid}.json', 'w') as f_tl:
         json.dump(timeline_data, f_tl, default=str)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SECTION 9: RISK COUNTS, AGGREGATIONS, TRENDS & GRAPH NETWORKS
-# ══════════════════════════════════════════════════════════════════════════════
-print("\n[~] Compiling global aggregates, risk trends, and topology networks...")
-
-# Apply the 0 Baht patch to the master df global tracking variables as well
-df.loc[df['current_balance'] <= 0, 'balance_surprise_zscore'] = 0.0
-
+print("\n[~] Compiling aggregates, risk trends, and topology networks...")
 risk_counts = {
     'Off-hours': int(df['is_off_hours'].sum()),
     'After midnight': int(df['is_after_midnight'].sum()),
@@ -148,7 +138,6 @@ risk_counts = {
 }
 top_triggers = dict(sorted(risk_counts.items(), key=lambda x: x[1], reverse=True)[:5])
 
-# Build Top Risky Employees High-Level Matrix
 emp_agg = df.groupby('employee_id').agg(
     avg_risk_score=('ensemble_score', 'mean'),
     max_score=('ensemble_score', 'max'),
@@ -170,7 +159,6 @@ emp_agg['composite_risk'] = (
 )
 top_risky_employees = emp_agg.sort_values('composite_risk', ascending=False).head(20).to_dict(orient='records')
 
-# Process Rolling Historical Risk Trends
 trend_payload = {}
 df_trend = df.copy()
 df_trend['date_str'] = df_trend['log_date'].dt.strftime('%Y-%m-%d')
@@ -180,7 +168,6 @@ for eid in df['employee_id'].unique():
     emp_trend['rolling_risk'] = emp_trend['ensemble_score'].rolling(window=3, min_periods=1).mean().round(1)
     trend_payload[eid] = [{'date': r['date_str'], 'avg_risk': float(r['rolling_risk'])} for r in emp_trend.to_dict(orient='records')]
 
-# Generate Account Network Data Topology
 acct_cross_access = df.groupby('acct_no')['employee_id'].nunique()
 shared_accounts = acct_cross_access[acct_cross_access > 1].index.tolist()
 
@@ -203,7 +190,6 @@ for _, row in net_df.iterrows():
         added_nodes.add(row['acct_no'])
     links.append({'source': row['employee_id'], 'target': row['acct_no'], 'weight': 1})
 
-# Extract Final Clean Active Alert Slices
 top_alerts_final = df_timeline.nlargest(100, 'ensemble_score').copy()
 top_alerts_output = top_alerts_final.to_dict(orient='records')
 
@@ -213,12 +199,7 @@ dormant_alerts_output = dormant_alerts_final.to_dict(orient='records')
 hourly_avg = df.groupby('hour')['ensemble_score'].mean().round(1).to_dict()
 hourly_pattern = {int(k): float(v) for k, v in hourly_avg.items()}
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# MASTER PAYLOAD EXPORT GENERATION
-# ══════════════════════════════════════════════════════════════════════════════
 print("\n[~] Consolidating metrics into fraud_output_final.json...")
-
 output_payload = {
     'summary': {
         'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
@@ -266,4 +247,4 @@ output_payload = {
 with open('fraud_output_final.json', 'w') as f_out:
     json.dump(output_payload, f_out, default=str)
 
-print("\n[✓] Pipeline execution finished successfully! All anomalies calibrated.")
+print("\n[✓] Pipeline execution finished successfully! All components perfectly synchronized.")
