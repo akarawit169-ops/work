@@ -1,6 +1,6 @@
-# ══════════════════════════════════════════════════════════════════════════════
-# NEW SECTION 7: HIGH-SPEED VECTORIZED TIME-WINDOW ISOLATION (BURST CALCULATION FIRST)
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# SECTION 7: HIGH-SPEED VECTORIZED TIME-WINDOW ISOLATION (BURST CALCULATION FIRST)
+# ==============================================================================
 print("\n[7/7] Calculating vectorized localized bursts (Trapped Per Employee)...")
 
 # 1. Prepare a clean, chronologically sorted copy for rapid window math
@@ -21,9 +21,9 @@ df.loc[df['current_balance'] <= 0, 'balance_surprise_zscore'] = 0.0
 X_all = df[FEATURES].fillna(0).astype(float)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# NEW SECTION 8: TARGETED SHAP ENGINE (Trained on Cleaned, Isolated Features)
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# SECTION 8: TARGETED SHAP ENGINE (Trained on Cleaned, Isolated Features)
+# ==============================================================================
 print("\n[8/7] Training global surrogate model on clean features & running SHAP...")
 import shap
 
@@ -89,10 +89,14 @@ if len(dormant_alerts_df) > 0:
         df.loc[original_idx, 'shap_explanation_json'] = json.dumps(top_5_dict)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# NEW SECTION 9: BULK TIMELINE FILE WRITER & COMPACT PAYLOAD EXPORT
-# ══════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# SECTION 9: RISK COUNTS, AGGREGATIONS, TIMELINES & TOPOLOGY NETWORKS
+# ==============================================================================
 print("\n[~] Generating individual timeline JSON files...")
+TL_DIR = 'timelines'
+if not os.path.exists(TL_DIR): 
+    os.makedirs(TL_DIR)
+
 df_timeline = df.copy()
 df_timeline['log_date_str'] = df_timeline['log_date'].dt.strftime('%Y-%m-%d %H:%M')
 
@@ -125,7 +129,7 @@ for eid, emp_logs in df_timeline.groupby('employee_id'):
     with open(f'{TL_DIR}/{eid}.json', 'w') as f_tl:
         json.dump(timeline_data, f_tl, default=str)
 
-print("\n[~] Compiling aggregates, risk trends, and topology networks...")
+print("\n[~] Compiling global aggregates, risk trends, and topology networks...")
 risk_counts = {
     'Off-hours': int(df['is_off_hours'].sum()),
     'After midnight': int(df['is_after_midnight'].sum()),
@@ -199,7 +203,12 @@ dormant_alerts_output = dormant_alerts_final.to_dict(orient='records')
 hourly_avg = df.groupby('hour')['ensemble_score'].mean().round(1).to_dict()
 hourly_pattern = {int(k): float(v) for k, v in hourly_avg.items()}
 
-print("\n[~] Consolidating metrics into fraud_output_final.json...")
+
+# ==============================================================================
+# MASTER PAYLOAD EXPORT GENERATION
+# ==============================================================================
+print("\n[~] Consolidating calibrated metrics into fraud_output_final.json...")
+
 output_payload = {
     'summary': {
         'generated_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
@@ -226,7 +235,7 @@ output_payload = {
     'account_network': {'nodes': nodes, 'links': links},
     'top_alerts': [{
         'log_id': r['log_id'], 'log_date': r['log_date_str'], 'employee_id': r['employee_id'],
-        'acct_no': r['acct_no'], 'risk_score': r['ensemble_score'], 'ensemble_score': r['ensemble_score'],
+        'acct_no': r['acct_no'], 'risk_score': float(r['ensemble_score']), 'ensemble_score': float(r['ensemble_score']),
         'reason': r['shap_reason'], 'shap_explanation': json.loads(r['shap_explanation_json']),
         'flags': r['flags'], 'risk_tier': r['risk_tier'], 'dept_name': r['dept_name'],
         'position': r['position'], 'branch_number': r['branch_number'], 'app_desc': r['app_desc'],
@@ -235,7 +244,7 @@ output_payload = {
     } for r in top_alerts_output],
     'dormant_alerts': [{
         'log_id': r['log_id'], 'log_date': r['log_date_str'], 'employee_id': r['employee_id'],
-        'acct_no': r['acct_no'], 'risk_score': r['ensemble_score'], 'ensemble_score': r['ensemble_score'],
+        'acct_no': r['acct_no'], 'risk_score': float(r['ensemble_score']), 'ensemble_score': float(r['ensemble_score']),
         'reason': r['shap_reason'], 'shap_explanation': json.loads(r['shap_explanation_json']),
         'flags': r['flags'], 'risk_tier': r['risk_tier'], 'dept_name': r['dept_name'],
         'position': r['position'], 'branch_number': r['branch_number'], 'app_desc': r['app_desc'],
