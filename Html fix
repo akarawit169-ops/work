@@ -1,0 +1,50 @@
+// ==============================================================================
+// DYNAMIC ALERTS FRONTEND INGESTION (REMOVES THE 100 LIMIT)
+// ==============================================================================
+function renderAlertsTable(alertsData) {
+    const tableBody = document.getElementById('alertsTableBody');
+    if (!tableBody) return;
+    
+    tableBody.innerHTML = ''; // Clear previous loading indicators
+    
+    // FIX: Remove .slice(0, 100) so it iterates over ALL rows passed by the backend
+    const alertsToShow = alertsData; 
+    
+    if (alertsToShow.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4">No critical tier threats detected.</td></tr>`;
+        return;
+    }
+
+    alertsToShow.forEach(alert => {
+        const row = document.createElement('tr');
+        row.className = 'hover-trigger-row';
+        
+        // Dynamically assign tier badges based on the actual backend score bounds
+        let tierBadge = '<span class="badge bg-secondary">Low</span>';
+        if (alert.ensemble_score >= 80) {
+            tierBadge = '<span class="badge bg-danger animate-pulse">Critical</span>';
+        } else if (alert.ensemble_score >= 60) {
+            tierBadge = '<span class="badge bg-warning text-dark">High</span>';
+        }
+        
+        row.innerHTML = `
+            <td><strong>#${alert.log_id}</strong></td>
+            <td><span class="text-muted">${alert.log_date}</span></td>
+            <td><code>${alert.employee_id}</code></td>
+            <td><code>${alert.acct_no}</code></td>
+            <td><strong>${alert.ensemble_score.toFixed(1)}</strong></td>
+            <td>${tierBadge}</td>
+            <td><div class="text-truncate" style="max-width: 280px;">${alert.reason}</div></td>
+            <td class="text-end">
+                <button class="btn btn-sm btn-outline-primary" onclick="viewTimeline('${alert.employee_id}')">Investigate</button>
+            </td>
+        `;
+        tableBody.appendChild(row);
+    });
+    
+    // Update counter badges on the UI to display the exact volume matching reality
+    const counterBadge = document.getElementById('criticalAlertsCounter');
+    if (counterBadge) {
+        counterBadge.innerText = alertsToShow.length;
+    }
+}
